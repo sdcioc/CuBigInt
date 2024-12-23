@@ -597,9 +597,9 @@ __host__ __device__ bigint* bigint_from_bytes(bigint *dst, const uint8_t *src, s
 }
 
 __host__ __device__ int bigint_raw_add_signed(
-    bigint_word *dst, int *dst_neg,
-    const bigint_word *a, int na, int a_neg,
-    const bigint_word *b, int nb, int b_neg
+    bigint_word *dst, bool *dst_neg,
+    const bigint_word *a, int na, bool a_neg,
+    const bigint_word *b, int nb, bool b_neg
 ){
     if (a_neg){
         if (b_neg){
@@ -824,7 +824,12 @@ __host__ __device__ bigint* bigint_div_mod(
     int src_numerator_neg = src_numerator->neg;
     int src_denominator_neg = src_denominator->neg;
     bigint denominator[1], *remainder = dst_remainder, *quotient = dst_quotient;
-
+    printf("src_numerator size: %d\n", src_numerator->size);
+    printf("src_denominator size: %d\n", src_denominator->size);
+    printf("src_numerator neg: %d\n", src_numerator_neg);
+    printf("src_denominator neg: %d\n", src_denominator_neg);
+    printf("src_numerator words[0]: %lx\n", src_numerator->words[0]);
+    printf("src_denominator words[0]: %lx\n", src_denominator->words[0]);
     if (src_denominator->size == 0) return NULL;
 
     /* fast path for native word size */

@@ -31,9 +31,17 @@ set(CMAKE_CUDA_ARCHITECTURES ${CUDA_COMPUTE_CAPABILITY})
 
 
 file(GLOB LIBRARY_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu")
+list(REMOVE_ITEM LIBRARY_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cu")
 
 add_library(${PROJECT_NAME} OBJECT ${LIBRARY_SOURCES})
 
+# Add the main.cu file as an executable
+file(GLOB EXECUTABLE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cu")
+
+add_executable(main ${EXECUTABLE_SOURCES})
+
+# Link the CuBigInt library to the executable
+target_link_libraries(main PRIVATE ${PROJECT_NAME})
 
 # set target properties
 set_target_properties(${PROJECT_NAME}
@@ -41,6 +49,12 @@ set_target_properties(${PROJECT_NAME}
         CUDA_SEPARABLE_COMPILATION ON
         CUDA_RESOLVE_DEVICE_SYMBOLS ON
         POSITION_INDEPENDENT_CODE ON
+)
+
+set_target_properties(main
+    PROPERTIES
+        CUDA_SEPARABLE_COMPILATION ON
+        CUDA_RESOLVE_DEVICE_SYMBOLS ON
 )
 
 target_include_directories(${PROJECT_NAME}

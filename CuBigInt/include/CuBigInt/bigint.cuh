@@ -32,7 +32,8 @@ typedef uint32_t bigint_word;
 
 typedef struct bigint {
     bigint_word *words;
-    int neg, size, capacity;
+    bool neg;
+    int size, capacity;
 } bigint;
 
 typedef void (*bigint_rand_func)(uint8_t *dst, int n);
