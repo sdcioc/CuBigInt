@@ -154,7 +154,6 @@ __host__ __device__ int bigint_raw_cmp_abs(
 
     if (na > nb) return +1;
     if (na < nb) return -1;
-
     BIGINT_ASSERT(na, ==, nb);
     for (i = na - 1; i >= 0; i--){
         if (a[i] < b[i]) return -1;
@@ -802,7 +801,23 @@ __host__ __device__ int bigint_raw_bitlength(const bigint_word *src_a, int na){
 }
 
 __host__ __device__ int bigint_bitlength(const bigint *a){
-    return bigint_raw_bitlength(a->words, a->size);
+    // return bigint_raw_bitlength(a->words, a->size);
+    for (int i = a->size - 1; i >= 0; --i) {
+        bigint_word word = a->words[i];
+        // printf("word %d: %08x\n", i, word);
+        if (word != 0) {
+            // Found the first non-zero word
+            int bits = 32 * (i);
+            // printf("bits: %d\n", bits);
+            // Now find the highest bit set in word
+            for (int j = 31; j >= 0; --j) {
+                if (word & (1U << j)) {
+                    return bits + j + 1;
+                }
+            }
+        }
+    }
+    return 0;
 }
 
 __host__ __device__ int bigint_count_trailing_zeros(const bigint *a){
@@ -824,12 +839,8 @@ __host__ __device__ bigint* bigint_div_mod(
     int src_numerator_neg = src_numerator->neg;
     int src_denominator_neg = src_denominator->neg;
     bigint denominator[1], *remainder = dst_remainder, *quotient = dst_quotient;
-    printf("src_numerator size: %d\n", src_numerator->size);
-    printf("src_denominator size: %d\n", src_denominator->size);
-    printf("src_numerator neg: %d\n", src_numerator_neg);
-    printf("src_denominator neg: %d\n", src_denominator_neg);
-    printf("src_numerator words[0]: %lx\n", src_numerator->words[0]);
-    printf("src_denominator words[0]: %lx\n", src_denominator->words[0]);
+    // printf("src_numerator size: %d\n", src_numerator->size);
+    // printf("src_denominator size: %d\n", src_denominator->size);
     if (src_denominator->size == 0) return NULL;
 
     /* fast path for native word size */
@@ -866,11 +877,13 @@ __host__ __device__ bigint* bigint_div_mod(
 
         bigint_init(denominator);
         bigint_shift_left(denominator, src_denominator, shift);
+        denominator->size = src_denominator->size; // shifting changes the size of the denominator
+        // Todo : fix cmp
         denominator->neg = 0;
-
         /* divide bit by bit */
         for (; shift >= 0; shift--) {
             if (bigint_cmp_abs(remainder, denominator) >= 0) {
+              
                 bigint_sub(remainder, remainder, denominator);
                 bigint_set_bit(quotient, shift);
             }

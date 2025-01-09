@@ -1,6 +1,10 @@
 #include <CuBigInt/uint256.cuh>
 
 __host__ __device__ int uint256_cmp(const uint256 *a, const uint256 *b) {
+    if (a == nullptr) return !uint256_is_zero(b);
+
+    if (b == nullptr) return !uint256_is_zero(a);
+
     for (int i = UINT256_WORDS - 1; i >= 0; i--) {
         if (a->words[i] < b->words[i]) return -1;
         if (a->words[i] > b->words[i]) return 1;
@@ -11,16 +15,20 @@ __host__ __device__ int uint256_cmp(const uint256 *a, const uint256 *b) {
 __host__ __device__ int uint256_cmp_word(const uint256 *a, bigint_word b) {
     for (int i = UINT256_WORDS - 1; i >= 0; i--) {
         if (i != 0 && a->words[i] != 0) return 1;
-        if (a->words[i] < b) return -1;
+        if (i == 0) {
+            if (a->words[i] < b) return -1;
+            if (a->words[i] > b) return 1;
+        }
     }
     return 0;
 }
 
-__host__ __device__ int uint256_is_zero(const uint256 *a) {
+__host__ __device__ bool uint256_is_zero(const uint256 *a) {
+    if (a == nullptr) return true;
     for (int i = 0; i < UINT256_WORDS; i++) {
-        if (a->words[i] != 0) return 0;
+        if (a->words[i] != 0) return false;
     }
-    return 1;
+    return true;
 }
 
 __host__ __device__ int uint256_set_zero(uint256 *a) {
@@ -39,7 +47,7 @@ __host__ __device__ uint256 *uint256_cpy(uint256 *dst, const uint256 *src) {
     return dst;
 }
 
-__host__ __device__ int uint256_bit_length(const uint256 *num) {
+__host__ __device__ uint32_t uint256_bitlength(const uint256 *num) {
     // printf("bit length\n");
     for (int i = UINT256_WORDS - 1; i >= 0; --i) {
         uint32_t word = num->words[i];
@@ -80,19 +88,23 @@ __host__ __device__ void uint256_set_bit(uint256 *num, int bit_index, uint8_t va
 
 // TODO: check if this is correct
 __host__ __device__ uint256 *uint256_mul(uint256 *dst, const uint256 *a, const uint256 *b) {
-    memset(dst->words, 0, sizeof(dst->words));  // Initialize dst to zero
+    uint256 tmp;
+    memset(tmp.words, 0, sizeof(tmp.words));  // Initialize dst to zero
     for (int i = 0; i < UINT256_WORDS; i++) {
+        bigint_word carry = 0;
         for (int j = 0; j < UINT256_WORDS; j++) {
             if (i + j < UINT256_WORDS) {
-                bigint_word lo = bigint_word_mul_lo(a->words[i], b->words[j]);
-                bigint_word hi = bigint_word_mul_hi(a->words[i], b->words[j]);
-                dst->words[i + j] += lo;
-                if (i + j + 1 < UINT256_WORDS) {
-                    dst->words[i + j + 1] += hi;
-                }
+                uint64_t product = (uint64_t)a->words[i] * b->words[j] + tmp.words[i + j] + carry;
+                tmp.words[i + j] = (bigint_word)product;  // Store the lower part
+                carry = product >> 32;                    // Carry the upper part
             }
         }
+        // If there's a carry left and space in the array, add it
+        if (i + UINT256_WORDS < UINT256_WORDS) {
+            tmp.words[i + UINT256_WORDS] += carry;
+        }
     }
+    uint256_cpy(dst, &tmp);
     return dst;
 }
 
@@ -157,17 +169,82 @@ __host__ __device__ uint256 *uint256_add(uint256 *dst, const uint256 *a, const u
     bigint_word carry = 0;
     for (int i = 0; i < UINT256_WORDS; i++) {
         bigint_word sum = a->words[i] + b->words[i] + carry;
-        carry = (sum < a->words[i]) ? 1 : 0;
+        carry = (sum < a->words[i] || (carry && sum == a->words[i])) ? 1 : 0;
         dst->words[i] = sum;
     }
+    return dst;
+}
+
+__host__ __device__ uint256 *uint256_addmod(uint256 *dst, const uint256 *a, const uint256 *b, const uint256 *N) {
+    bigint big_a, big_b, big_N;
+    if (uint256_is_zero(N)) {
+        uint256_set_zero(dst);
+        return dst;
+    }
+    bigint_from_uint256(&big_a, a, 9);
+
+    bigint_from_uint256(&big_b, b, 9);
+
+    bigint_from_uint256(&big_N, N, 9);
+
+    bigint_add(&big_a, &big_a, &big_b);
+    big_a.size = 9;  // bigint_add modifies the size of big_a
+    printf("big_a size: %d\n", big_a.size);
+    printf("big_a: ");
+    print_bigint(&big_a);
+    // bigint big_dst;
+    // bigint_init(&big_dst);
+    // bigint_reserve(&big_dst, 9);
+    // bigint big_unused;
+    // bigint_init(&big_unused);
+    // bigint_reserve(&big_unused, 9);
+    bigint_div_mod(&big_b, &big_a, &big_a, &big_N);
+    printf("big_a after mod: ");
+    print_bigint(&big_a);
+    uint256_from_bigint(dst, &big_a);
+    return dst;
+}
+
+__host__ __device__ uint256 *uint256_mulmod(uint256 *dst, const uint256 *a, const uint256 *b, const uint256 *N) {
+    bigint mul_res, big_N;
+    if (uint256_is_zero(N)) {
+        uint256_set_zero(dst);
+        return dst;
+    }
+    bigint_init(&mul_res);
+    bigint_reserve(&mul_res, UINT256_WORDS * 2);
+    mul_res.size = UINT256_WORDS * 2;
+    bigint big_a, big_b;
+    bigint_from_uint256(&big_a, a, UINT256_WORDS * 2);
+    bigint_from_uint256(&big_b, b, UINT256_WORDS * 2);
+    bigint_mul(&mul_res, &big_a, &big_b);
+    mul_res.size = UINT256_WORDS * 2;
+    // memset(mul_res.words, 0, sizeof(mul_res.words));  // Initialize dst to zero
+    // for (int i = 0; i < UINT256_WORDS; i++) {
+    //     bigint_word carry = 0;
+    //     for (int j = 0; j < UINT256_WORDS; j++) {
+
+    //         uint64_t product = (uint64_t)a->words[i] * b->words[j] + mul_res.words[i + j] + carry;
+    //         mul_res.words[i + j] = (bigint_word)product;  // Store the lower part
+    //         carry = product >> 32;  // Carry the upper part
+
+    //     }
+    //     // If there's a carry left and space in the array, add it
+    //     if (i + UINT256_WORDS < UINT256_WORDS) {
+    //         mul_res.words[i + UINT256_WORDS] += carry;
+    //     }
+    // }
+    bigint_from_uint256(&big_N, N, UINT256_WORDS * 2);
+    bigint_mod(&mul_res, &mul_res, &big_N);
+    uint256_from_bigint(dst, &mul_res);
     return dst;
 }
 
 __host__ __device__ uint256 *uint256_sub(uint256 *dst, const uint256 *a, const uint256 *b) {
     bigint_word borrow = 0;
     for (int i = 0; i < UINT256_WORDS; i++) {
-        bigint_word diff = a->words[i] - b->words[i] - borrow;
-        borrow = (a->words[i] < b->words[i] + borrow) ? 1 : 0;
+        uint64_t diff = (uint64_t)a->words[i] - (uint64_t)b->words[i] - borrow;
+        borrow = (diff >> 32) & 1;
         dst->words[i] = diff;
     }
     return dst;
@@ -263,9 +340,9 @@ __host__ __device__ uint256 *uint256_div_mod(uint256 *dst_quotient, uint256 *dst
     }
 
     // Determine the shift required to align the numerator and denominator
-    int nbits_numerator = uint256_bit_length(&numerator);
+    uint32_t nbits_numerator = uint256_bitlength(&numerator);
 
-    int nbits_denominator = uint256_bit_length(&denominator);
+    uint32_t nbits_denominator = uint256_bitlength(&denominator);
 
     int shift = nbits_numerator - nbits_denominator;
     // return NULL;
@@ -287,16 +364,18 @@ __host__ __device__ uint256 *uint256_div_mod(uint256 *dst_quotient, uint256 *dst
     return dst_quotient;
 }
 
-__host__ __device__ bigint *bigint_from_uint256(bigint *dst, const uint256 *src) {
+__host__ __device__ bigint *bigint_from_uint256(bigint *dst, const uint256 *src, const uint32_t word_size) {
     bigint_init(dst);
-    bigint_reserve(dst, UINT256_WORDS);
-    dst->size = UINT256_WORDS;
-    memcpy(dst->words, src->words, sizeof(dst->words));
+    bigint_reserve(dst, word_size);
+    dst->size = word_size;
+    memset(dst->words, 0, word_size * sizeof(bigint_word));
+    memcpy(dst->words, src->words, UINT256_WORDS * sizeof(bigint_word));
     return dst;
 }
 
 __host__ __device__ uint256 *uint256_from_bigint(uint256 *dst, const bigint *src) {
-    memcpy(dst->words, src->words, sizeof(dst->words));
+    memset(dst->words, 0, sizeof(dst->words));
+    memcpy(dst->words, src->words, UINT256_WORDS * sizeof(bigint_word));
     return dst;
 }
 
@@ -309,6 +388,115 @@ __host__ __device__ uint256 *uint256_mod(uint256 *dst, const uint256 *numerator,
     uint256 quotient;
     return uint256_div_mod(&quotient, dst, numerator, denominator);
 }
+
+__host__ __device__ uint256 *uint256_negate(uint256 *dst, const uint256 *src) {
+    uint256 zero;
+    uint256_from_word(&zero, 0);
+    uint256_sub(dst, &zero, src);
+    return dst;
+}
+
+__host__ __device__ uint256 *uint256_signed_mod(uint256 *dst, const uint256 *numerator, const uint256 *denominator) {
+    uint256 quotient;
+    bool numerator_neg = numerator->words[UINT256_WORDS - 1] & 0x80000000;
+    bool denominator_neg = denominator->words[UINT256_WORDS - 1] & 0x80000000;
+    uint256 numerator_abs;
+    uint256 denominator_abs;
+
+    if (numerator_neg) {
+        uint256_negate(&numerator_abs, numerator);
+    } else {
+        uint256_cpy(&numerator_abs, numerator);
+    }
+    if (denominator_neg) {
+        uint256_negate(&denominator_abs, denominator);
+    } else {
+        uint256_cpy(&denominator_abs, denominator);
+    }
+    uint256_div_mod(&quotient, dst, &numerator_abs, &denominator_abs);
+    if (numerator_neg) {
+        uint256_negate(dst, dst);
+    }
+    return dst;
+}
+
+__host__ __device__ uint256 *uint256_signed_div(uint256 *dst, const uint256 *numerator, const uint256 *denominator) {
+    uint256 remainder;
+    bool numerator_neg = numerator->words[UINT256_WORDS - 1] & 0x80000000;
+    bool denominator_neg = denominator->words[UINT256_WORDS - 1] & 0x80000000;
+    uint256 numerator_abs;
+    uint256 denominator_abs;
+
+    if (numerator_neg) {
+        uint256_negate(&numerator_abs, numerator);
+    } else {
+        uint256_cpy(&numerator_abs, numerator);
+    }
+    if (denominator_neg) {
+        uint256_negate(&denominator_abs, denominator);
+    } else {
+        uint256_cpy(&denominator_abs, denominator);
+    }
+    uint256_div(dst, &numerator_abs, &denominator_abs);
+    if (numerator_neg != denominator_neg) {
+        uint256_negate(dst, dst);
+    }
+    return dst;
+}
+
+__host__ __device__ uint256 *uint256_sign_extension(uint256 *dst, const uint256 *src, const uint32_t byte_index) {
+    if (byte_index >= UINT256_WORDS * sizeof(bigint_word)) {
+        // If byte_index is out of bounds, just copy the source
+        uint256_cpy(dst, src);
+        return dst;
+    }
+    uint32_t word_index = byte_index / sizeof(bigint_word);
+    uint32_t byte_in_word = byte_index % sizeof(bigint_word);
+    uint32_t sign_bit = (src->words[word_index] >> (byte_in_word * 8 + 7)) & 1;
+    printf("sign_bit: %d\n", sign_bit);
+    if (sign_bit) {
+        // If the sign bit is set, extend with 1s
+        for (uint32_t i = word_index; i < UINT256_WORDS; i++) {
+            if (i == word_index) {
+                dst->words[i] = src->words[i] | (~0U << (byte_in_word * 8 + 8));
+            } else {
+                dst->words[i] = ~0U;
+            }
+        }
+    } else {
+        // If the sign bit is not set, copy the source (only from the byte_index to the end)
+        for (uint32_t i = 0; i < word_index; i++) {
+            dst->words[i] = 0;
+        }
+        dst->words[word_index] = src->words[word_index] & ((1U << (byte_in_word * 8 + 8)) - 1);
+        for (uint32_t i = word_index + 1; i < UINT256_WORDS; i++) {
+            dst->words[i] = src->words[i];
+        }
+    }
+    return dst;
+}
+__host__ __device__ uint256 *uint256_exp(uint256 *dst, const uint256 *base, const uint256 *exponent) {
+    uint256 result, base_copy;
+    uint256_set_zero(&result);
+    result.words[0] = 1;  // Initialize result to 1
+    uint256_cpy(&base_copy, base);
+    uint32_t exponent_bit_length = uint256_bitlength(exponent);
+    uint32_t exponent_byte_length = (exponent_bit_length + 7) / 8;
+
+    for (int i = 0; i < exponent_byte_length; i++) {
+        for (int j = 0; j < 32; j++) {
+            if ((exponent->words[i] >> j) & 1) {
+                uint256_mul(&result, &result, &base_copy);
+            }
+
+            uint256_mul(&base_copy, &base_copy, &base_copy);
+        }
+    }
+    // todo : optimize
+    uint256_cpy(dst, &result);
+    return dst;
+}
+
 /*
 __host__ __device__ uint256* uint256_shift_left(uint256 *dst, const uint256 *src, unsigned shift) {
     if (shift >= UINT256_WORDS * BIGINT_WORD_BITS) {
@@ -357,8 +545,9 @@ __host__ __device__ uint256* uint256_shift_right(uint256 *dst, const uint256 *sr
 }
 */
 __host__ __device__ uint256 *uint256_shift_left(uint256 *dst, const uint256 *src, uint32_t shift) {
-    if (shift <= 0) return dst;
     if (dst != src) uint256_cpy(dst, src);
+    if (shift <= 0) return dst;
+
     while (shift >= 32) {
         for (int i = UINT256_WORDS - 1; i > 0; --i) dst->words[i] = dst->words[i - 1];
         dst->words[0] = 0;
