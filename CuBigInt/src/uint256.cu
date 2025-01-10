@@ -12,6 +12,19 @@ __host__ __device__ int uint256_cmp(const uint256 *a, const uint256 *b) {
     return 0;
 }
 
+__host__ __device__ int uint256_signed_cmp(const uint256 *a, const uint256 *b) {
+    bool asign = a->words[UINT256_WORDS - 1] & 0x80000000;
+    bool bsign = b->words[UINT256_WORDS - 1] & 0x80000000;
+
+    if (asign && !bsign) {
+        return -1;
+    }
+    if (!asign && bsign) {
+        return 1;
+    }
+    return uint256_cmp(a, b);
+}
+
 __host__ __device__ int uint256_cmp_word(const uint256 *a, bigint_word b) {
     for (int i = UINT256_WORDS - 1; i >= 0; i--) {
         if (i != 0 && a->words[i] != 0) return 1;
@@ -563,7 +576,6 @@ __host__ __device__ uint256 *uint256_shift_left(uint256 *dst, const uint256 *src
     }
     return dst;
 }
-
 __host__ __device__ uint256 *uint256_shift_right(uint256 *dst, const uint256 *src, uint32_t shift) {
     if (shift <= 0) return dst;
     while (shift >= 32) {
@@ -579,6 +591,30 @@ __host__ __device__ uint256 *uint256_shift_right(uint256 *dst, const uint256 *sr
             uint32_t word = src->words[i];
             dst->words[i] = (word >> shift) | carry;
             carry = word << (32 - shift);
+        }
+    }
+    return dst;
+}
+__host__ __device__ uint256 *uint256_shift_arithmetic_right(uint256 *dst, const uint256 *src, uint32_t shift) {
+    if (shift <= 0) return dst;
+
+    // Determine if the most significant bit is set
+    bool msb_set = src->words[UINT256_WORDS - 1] & (1U << (BIGINT_WORD_BITS - 1));
+
+    while (shift >= 32) {
+        for (int i = UINT256_WORDS - 1; i > 0; --i) {
+            dst->words[i] = src->words[i - 1];
+        }
+        dst->words[0] = msb_set ? ~0U : 0;  // Fill with 1s if msb_set, else 0s
+        shift -= 32;
+    }
+
+    if (shift > 0) {
+        uint32_t carry = msb_set ? ~0U << (BIGINT_WORD_BITS - shift) : 0;
+        for (int i = UINT256_WORDS - 1; i >= 0; --i) {
+            uint32_t word = src->words[i];
+            dst->words[i] = (word >> shift) | carry;
+            carry = word << (BIGINT_WORD_BITS - shift);
         }
     }
     return dst;
@@ -634,6 +670,17 @@ __host__ __device__ uint256 *uint256_from_bytes(uint256 *dst, const uint8_t *src
         dst->words[word_index] |= ((bigint_word)src[i]) << (8 * (sizeof(bigint_word) - 1 - byte_position));
     }
 
+    return dst;
+}
+__host__ __device__ uint256 *uint256_extract_byte(uint256 *dst, const uint256 *src, uint32_t byte_index) {
+    uint32_t word_index = byte_index / sizeof(bigint_word);
+    uint32_t byte_position = byte_index % sizeof(bigint_word);
+    printf("word_index: %d, byte_position: %d\n", word_index, byte_position);
+    printf("src->words[word_index]: %u\n", src->words[word_index]);
+    uint32_t mask = 0xff << (8 * byte_position);
+    bigint_word extracted_byte = (src->words[word_index] & mask) >> (8 * byte_position);
+    printf("extracted_byte: %u\n", extracted_byte);
+    uint256_from_word(dst, extracted_byte);
     return dst;
 }
 

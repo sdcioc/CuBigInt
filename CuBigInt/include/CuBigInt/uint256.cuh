@@ -3,6 +3,8 @@
 #include "bigint.cuh"
 // subset and fixed size version of bigint
 #define UINT256_WORDS 8
+#define UINT256_BITS 256
+#define UINT256_BYTES 32
 typedef struct uint256 {
     bigint_word words[UINT256_WORDS];
 } uint256;
@@ -13,6 +15,8 @@ typedef struct uint512 {
 typedef void (*bigint_rand_func)(uint8_t *dst, int n);
 
 __host__ __device__ int uint256_cmp(const uint256 *a, const uint256 *b);
+__host__ __device__ int uint256_signed_cmp(const uint256 *a, const uint256 *b);
+
 __host__ __device__ int uint256_cmp_word(const uint256 *a, bigint_word b);
 __host__ __device__ bool uint256_is_zero(const uint256 *a);
 __host__ __device__ int uint256_set_zero(uint256 *a);
@@ -41,7 +45,7 @@ __host__ __device__ char *uint256_to_hex(char *dst, const uint256 *a);
 
 __host__ __device__ uint256 *uint256_shift_left(uint256 *dst, const uint256 *src, uint32_t shift);
 __host__ __device__ uint256 *uint256_shift_right(uint256 *dst, const uint256 *src, uint32_t shift);
-
+__host__ __device__ uint256 *uint256_shift_arithmetic_right(uint256 *dst, const uint256 *src, uint32_t shift);
 __host__ __device__ uint256 *uint256_bitwise_and(uint256 *dst, const uint256 *a, const uint256 *b);
 __host__ __device__ uint256 *uint256_bitwise_or(uint256 *dst, const uint256 *a, const uint256 *b);
 __host__ __device__ uint256 *uint256_bitwise_xor(uint256 *dst, const uint256 *a, const uint256 *b);
@@ -59,6 +63,8 @@ __host__ __device__ uint256 *uint256_signed_mod(uint256 *dst, const uint256 *num
 __host__ __device__ uint256 *uint256_signed_div(uint256 *dst, const uint256 *numerator, const uint256 *denominator);
 __host__ __device__ uint256 *uint256_sign_extension(uint256 *dst, const uint256 *src, const uint32_t bit_length);
 __host__ __device__ uint8_t *uint256_to_bytes(uint8_t *dst, const uint256 *src, size_t len);
+
+__host__ __device__ uint256 *uint256_extract_byte(uint256 *dst, const uint256 *src, uint32_t byte_index);
 
 __host__ __device__ void print_uint256(const uint256 *a);
 __host__ __device__ void print_bigint(const bigint *a);
