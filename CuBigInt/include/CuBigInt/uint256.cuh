@@ -5,6 +5,7 @@
 #define UINT256_WORDS 8
 #define UINT256_BITS 256
 #define UINT256_BYTES 32
+#define UINT256_LIMBS_BYTES 4
 typedef struct uint256 {
     bigint_word words[UINT256_WORDS];
 } uint256;
@@ -61,6 +62,8 @@ __host__ __device__ uint256 *uint256_exp(uint256 *dst, const uint256 *base, cons
 __host__ __device__ uint256 *uint256_mod(uint256 *dst, const uint256 *numerator, const uint256 *denominator);
 __host__ __device__ uint256 *uint256_signed_mod(uint256 *dst, const uint256 *numerator, const uint256 *denominator);
 __host__ __device__ uint256 *uint256_signed_div(uint256 *dst, const uint256 *numerator, const uint256 *denominator);
+__host__ __device__ uint256 *uint256_powmod(uint256 *dst, const uint256 *base, const uint256 *exponent,
+                                            const uint256 *modulus);
 __host__ __device__ uint256 *uint256_sign_extension(uint256 *dst, const uint256 *src, const uint32_t bit_length);
 __host__ __device__ uint8_t *uint256_to_bytes(uint8_t *dst, const uint256 *src, size_t len);
 
